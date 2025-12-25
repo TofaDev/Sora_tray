@@ -87,7 +87,35 @@ def get_battery():
     return battery, charging, full_charge, online
 
 
-def create_icon(text: str, color, font):
+def get_font_path(font_name):
+    """Get font path, checking resources first, then system fonts"""
+    # Try resource path (for exe)
+    try:
+        resource_path = get_resource(font_name)
+        if os.path.exists(resource_path):
+            return resource_path
+    except Exception:
+        pass
+    
+    # Try current directory
+    if os.path.exists(font_name):
+        return font_name
+    
+    # Try Windows system fonts directory
+    if sys.platform == 'win32':
+        system_fonts = [
+            os.path.join(os.environ.get('WINDIR', 'C:\\Windows'), 'Fonts', font_name),
+            os.path.join(os.environ.get('WINDIR', 'C:\\Windows'), 'Fonts', 'consola.ttf'),
+            os.path.join(os.environ.get('WINDIR', 'C:\\Windows'), 'Fonts', 'consolab.ttf'),
+        ]
+        for font_path in system_fonts:
+            if os.path.exists(font_path):
+                return font_path
+    
+    return None
+
+
+def create_icon(text: str, color, font_name):
 
     def PIL2wx(image):
         """Convert PIL Image to wxPython Bitmap"""
@@ -103,12 +131,18 @@ def create_icon(text: str, color, font):
             return (70, 32), 220
 
     image = Image.new(mode="RGBA", size=(256, 256), color=background_color)
-    # Call draw Method to add 2D graphics in an image
     I1 = ImageDraw.Draw(image)
-    # Custom font style and font size
     text_pos, size = get_text_pos_size(text)
-    myFont = ImageFont.truetype(font, size)
-    # Add Text to an image
+    
+    font_path = get_font_path(font_name)
+    try:
+        if font_path and os.path.exists(font_path):
+            myFont = ImageFont.truetype(font_path, size)
+        else:
+            myFont = ImageFont.load_default()
+    except Exception:
+        myFont = ImageFont.load_default()
+    
     I1.text(text_pos, text, font=myFont, fill=color)
     return PIL2wx(image)
 
@@ -122,11 +156,8 @@ class MyTaskBarIcon(TaskBarIcon):
 
     def CreatePopupMenu(self):
         menu = wx.Menu()
-        item_settings = wx.MenuItem(menu, wx.ID_ANY, "Settings")
-        self.Bind(wx.EVT_MENU, self.OnTaskBarActivate, id=item_settings.GetId())
         item_exit = wx.MenuItem(menu, wx.ID_ANY, "Exit")
         self.Bind(wx.EVT_MENU, self.OnTaskBarExit, id=item_exit.GetId())
-        # menu.Append(item_settings)
         menu.Append(item_exit)
         return menu
 
