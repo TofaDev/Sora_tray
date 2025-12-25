@@ -6,12 +6,12 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag version (e.g., v1.0.0)'
+        description: 'Tag version (e.g., v1.0.1)'
         required: true
         type: string
 
 jobs:
-  build:
+  build-windows:
     runs-on: windows-latest
     
     steps:
@@ -45,45 +45,144 @@ jobs:
         Write-Host "Version: $version"
         echo "version=$version" >> $env:GITHUB_OUTPUT
     
-    - name: Create release archive
+    - name: Create Windows release archive
       shell: pwsh
       run: |
         $version = "${{ steps.version.outputs.version }}"
         if (Test-Path "dist\sora_tray.exe") {
-          Compress-Archive -Path dist\sora_tray.exe -DestinationPath "sora_tray-$version-windows.zip" -Force
-          Write-Host "Archive created: sora_tray-$version-windows.zip"
+          New-Item -ItemType Directory -Force -Path "release-windows" | Out-Null
+          Copy-Item "dist\sora_tray.exe" -Destination "release-windows\"
+          Copy-Item "add_to_startup.bat" -Destination "release-windows\"
+          Copy-Item "add_to_startup.ps1" -Destination "release-windows\"
+          Copy-Item "remove_from_startup.bat" -Destination "release-windows\"
+          Copy-Item "remove_from_startup.ps1" -Destination "release-windows\"
+          Compress-Archive -Path "release-windows\*" -DestinationPath "sora_tray-$version-windows.zip" -Force
+          Write-Host "Windows archive created: sora_tray-$version-windows.zip"
           Get-Item "sora_tray-$version-windows.zip" | Select-Object Name, Length
         } else {
           Write-Error "sora_tray.exe not found in dist folder!"
           exit 1
         }
     
-    - name: Upload artifact
+    - name: Upload Windows artifact
       uses: actions/upload-artifact@v4
       with:
         name: sora_tray-windows
         path: sora_tray-*-windows.zip
+
+  build-linux:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential python3-dev libgtk-3-dev
+    
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Build executable
+      run: |
+        python -m PyInstaller sora_tray.spec --clean --noconfirm
+    
+    - name: Get version
+      id: version
+      run: |
+        if [ "${{ github.event_name }}" = "release" ]; then
+          version="${{ github.event.release.tag_name }}"
+        elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          version="${{ github.event.inputs.tag }}"
+        else
+          version="${{ github.ref_name }}"
+        fi
+        echo "version=$version" >> $GITHUB_OUTPUT
+        echo "Version: $version"
+    
+    - name: Create Linux release archive
+      run: |
+        version="${{ steps.version.outputs.version }}"
+        if [ -f "dist/sora_tray" ]; then
+          zip "sora_tray-$version-linux.zip" "dist/sora_tray"
+          echo "Linux archive created: sora_tray-$version-linux.zip"
+          ls -lh "sora_tray-$version-linux.zip"
+        else
+          echo "Error: sora_tray not found in dist folder!"
+          exit 1
+        fi
+    
+    - name: Upload Linux artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: sora_tray-linux
+        path: sora_tray-*-linux.zip
+
+  create-release:
+    needs: [build-windows, build-linux]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Get version
+      id: version
+      run: |
+        if [ "${{ github.event_name }}" = "release" ]; then
+          version="${{ github.event.release.tag_name }}"
+        elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          version="${{ github.event.inputs.tag }}"
+        else
+          version="${{ github.ref_name }}"
+        fi
+        echo "version=$version" >> $GITHUB_OUTPUT
+        echo "Version: $version"
+    
+    - name: Download Windows artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: sora_tray-windows
+        path: artifacts
+    
+    - name: Download Linux artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: sora_tray-linux
+        path: artifacts
     
     - name: Create or Update Release
       uses: softprops/action-gh-release@v1
       with:
         tag_name: ${{ steps.version.outputs.version }}
         name: Release ${{ steps.version.outputs.version }}
-        files: sora_tray-*-windows.zip
+        files: artifacts/*
         draft: false
         prerelease: false
         body: |
           ## Sora Tray ${{ steps.version.outputs.version }}
           
-          Windows executable for Ninjutso Sora V2 battery level indicator.
+          Windows and Linux executables for Ninjutso Sora V2 battery level indicator.
           
-          ### Installation
+          ### Windows Installation
           1. Download `sora_tray-*-windows.zip`
-          2. Extract `sora_tray.exe`
+          2. Extract all files
           3. Run `sora_tray.exe`
+          4. Use `add_to_startup.bat` or `add_to_startup.ps1` to add to Windows startup
           
-          ### Auto-startup
-          Use `add_to_startup.bat` or `add_to_startup.ps1` to add to Windows startup.
+          ### Linux Installation
+          1. Download `sora_tray-*-linux.zip`
+          2. Extract `sora_tray`
+          3. Make executable: `chmod +x sora_tray`
+          4. Run: `./sora_tray`
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
