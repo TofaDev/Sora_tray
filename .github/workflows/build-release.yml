@@ -1,0 +1,78 @@
+name: Build and Release
+
+on:
+  release:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag version (e.g., v1.0.0)'
+        required: true
+        type: string
+
+jobs:
+  build:
+    runs-on: windows-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Build executable
+      run: |
+        python -m PyInstaller sora_tray.spec --clean --noconfirm
+    
+    - name: Get version
+      id: version
+      run: |
+        if ("${{ github.event_name }}" -eq "release") {
+          $version = "${{ github.event.release.tag_name }}"
+        } else {
+          $version = "${{ github.event.inputs.tag }}"
+        }
+        echo "version=$version" >> $env:GITHUB_OUTPUT
+    
+    - name: Create release archive
+      run: |
+        $version = "${{ steps.version.outputs.version }}"
+        Compress-Archive -Path dist\sora_tray.exe -DestinationPath "sora_tray-$version-windows.zip" -Force
+        echo "Archive created: sora_tray-$version-windows.zip"
+    
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: sora_tray-windows
+        path: sora_tray-*-windows.zip
+    
+    - name: Create or Update Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ steps.version.outputs.version }}
+        name: Release ${{ steps.version.outputs.version }}
+        files: sora_tray-*-windows.zip
+        draft: false
+        prerelease: false
+        body: |
+          ## Sora Tray ${{ steps.version.outputs.version }}
+          
+          Windows executable for Ninjutso Sora V2 battery level indicator.
+          
+          ### Installation
+          1. Download `sora_tray-*-windows.zip`
+          2. Extract `sora_tray.exe`
+          3. Run `sora_tray.exe`
+          
+          ### Auto-startup
+          Use `add_to_startup.bat` or `add_to_startup.ps1` to add to Windows startup.
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
