@@ -33,19 +33,30 @@ jobs:
     
     - name: Get version
       id: version
+      shell: pwsh
       run: |
         if ("${{ github.event_name }}" -eq "release") {
           $version = "${{ github.event.release.tag_name }}"
-        } else {
+        } elseif ("${{ github.event_name }}" -eq "workflow_dispatch") {
           $version = "${{ github.event.inputs.tag }}"
+        } else {
+          $version = "${{ github.ref_name }}"
         }
+        Write-Host "Version: $version"
         echo "version=$version" >> $env:GITHUB_OUTPUT
     
     - name: Create release archive
+      shell: pwsh
       run: |
         $version = "${{ steps.version.outputs.version }}"
-        Compress-Archive -Path dist\sora_tray.exe -DestinationPath "sora_tray-$version-windows.zip" -Force
-        echo "Archive created: sora_tray-$version-windows.zip"
+        if (Test-Path "dist\sora_tray.exe") {
+          Compress-Archive -Path dist\sora_tray.exe -DestinationPath "sora_tray-$version-windows.zip" -Force
+          Write-Host "Archive created: sora_tray-$version-windows.zip"
+          Get-Item "sora_tray-$version-windows.zip" | Select-Object Name, Length
+        } else {
+          Write-Error "sora_tray.exe not found in dist folder!"
+          exit 1
+        }
     
     - name: Upload artifact
       uses: actions/upload-artifact@v4
